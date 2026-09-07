@@ -7,6 +7,7 @@ from shapely.ops import unary_union
 from streamlit_folium import st_folium
 
 BUFFER_METROS = 30
+PROYECTO_BUFFER_METROS = 50
 MAX_RUTAS_EN_MAPA = 5
 RUTAS_GREEN_REFERENCIA = {
     "KA324": ("UF 6", "Centro/Zona neutra"),
@@ -76,11 +77,11 @@ def cargar_proyectos():
         nombre_archivo = archivo.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
         nombre = nombre_archivo.removesuffix(".geojson").replace("_", " ")
 
-        # Metro_Linea_1 tiene coordenadas métricas con un CRS declarado incorrecto.
-        if proyecto.total_bounds.max() > 1000:
-            proyecto = proyecto.set_crs(epsg=3116, allow_override=True)
-        elif proyecto.crs is None:
-            proyecto = proyecto.set_crs(epsg=4326)
+        bounds = proyecto.total_bounds
+        if -180 <= bounds[0] <= 180:
+            proyecto = proyecto.set_crs(epsg=4326, allow_override=True)
+        else:
+            proyecto = proyecto.set_crs(epsg=6247, allow_override=True)
 
         geometria = unary_union(proyecto.to_crs(epsg=3116).geometry)
         geometria_wgs84 = unary_union(proyecto.to_crs(epsg=4326).geometry)
@@ -151,8 +152,8 @@ def calcular_competencia_proyectos(_gdf, _geometrias_rutas, _geometrias_proyecto
 
         for columna, clave in proyectos.items():
             geometria_proyecto = _geometrias_proyectos[clave]
-            km_compartidos = geometria_proyecto.intersection(
-                geometria_ruta.buffer(BUFFER_METROS)
+            km_compartidos = geometria_ruta.intersection(
+                geometria_proyecto.buffer(PROYECTO_BUFFER_METROS)
             ).length / 1000.0
             porcentaje = min(round((km_compartidos / longitud_km) * 100, 1), 100.0)
             fila[columna] = f"{porcentaje}%"
