@@ -15,6 +15,22 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("VALIDACIONES_DIR", BASE_DIR))
 
 
+def resolver_ruta_archivo(nombre_archivo: str):
+    """Busca un archivo local configurable sin necesidad de meterlo al repositorio."""
+    candidatos = [
+        Path(os.environ.get("VALIDACIONES_PATH", "")),
+        Path(os.environ.get("TABLA_RESUMEN_PATH", "")),
+        BASE_DIR / nombre_archivo,
+        DATA_DIR / nombre_archivo,
+        BASE_DIR / "data" / nombre_archivo,
+    ]
+
+    for ruta in candidatos:
+        if ruta and str(ruta).strip() and ruta.exists():
+            return ruta
+    return None
+
+
 def resolver_ruta_validaciones():
     """Busca el archivo de validaciones en ubicaciones locales y configurables.
 
@@ -42,8 +58,32 @@ def cargar_validaciones_parquet():
     if ruta is None:
         return None
 
-    df = pd.read_parquet(ruta)
-    return df
+    try:
+        df = pd.read_parquet(ruta)
+        if df is None or df.empty:
+            st.sidebar.warning(f"El archivo encontrado está vacío: {ruta}")
+            return None
+        return df
+    except Exception:  # pragma: no cover - manejo defensivo para despliegues
+        st.sidebar.error(
+            f"La fuente de validaciones no es un parquet válido: {ruta}. "
+            "Verifica que el archivo exista y no esté corrupto o vacío."
+        )
+        return None
+
+
+@st.cache_data
+def cargar_tabla_resumen_rutas():
+    """Carga la tabla ya procesada y agregada. Si no existe, devuelve None y la app
+    puede calcularla sobre la marcha desde el parquet bruto local."""
+    ruta = resolver_ruta_archivo("resumen_rutas_sentido.parquet")
+    if ruta is None:
+        return None
+
+    try:
+        return pd.read_parquet(ruta)
+    except Exception:
+        return None
 
 BUFFER_METROS = 30
 PROYECTO_BUFFER_METROS = 50
@@ -217,13 +257,14 @@ def calcular_competencia_proyectos(_gdf, _geometrias_rutas, _geometrias_proyecto
 def calcular_distribucion_rutas_sentido():
     """Genera una vista operativa de la distribución de validaciones por ruta y sentido.
 
-    Dado que el parquet bruto no trae secuencia de paradero por cada validación, esta
-    tabla usa un proxy reproducible: divide el total por ruta/sentido en 3 tramos del
-    recorrido (Origen, Intermedio, Destino) en proporciones 30/40/30.
-
-    Cuando el pipeline O-D con secuencia y GTFS esté conectado, esta función puede
-    reemplazarse por el cálculo real sin cambiar la visualización.
+    Se prioriza la tabla agregada ya procesada, que es la salida que sí debería ir al repositorio.
+    El parquet bruto se queda local y fuera del git. Si la tabla agregada no existe, se calcula
+    a partir del parquet local como fallback.
     """
+    tabla_agregada = cargar_tabla_resumen_rutas()
+    if tabla_agregada is not None and not tabla_agregada.empty:
+        return tabla_agregada
+
     df = cargar_validaciones_parquet()
     if df is None:
         return pd.DataFrame(columns=["Codigo_Ruta", "Sentido", "Total", "Origen", "Intermedio", "Destino"])
@@ -452,8 +493,11 @@ with tab_distribucion:
         "Se calcula a partir del parquet local de validaciones. Como el dataset bruto no incluye secuencia de paraderos por cada transacción, se usa un proxy reproducible con tres tramos del recorrido: origen, intermedio y destino."
     )
     tabla_distribucion = calcular_distribucion_rutas_sentido()
-    if tabla_distribucion.empty:
-        st.warning("No se pudo construir la distribución porque no se encontró el archivo parquet de validaciones en la ruta local configurada.")
+    if tabla_distribucion is None or tabla_distribucion.empty:
+        st.warning(
+            "No se pudo construir la distribución porque no se encontró un parquet válido de validaciones. "
+            "Define VALIDACIONES_PATH o coloca el archivo local en la raíz o en data/."
+        )
     else:
         # Mostrar datos para inspección
         st.dataframe(tabla_distribucion, use_container_width=True)
