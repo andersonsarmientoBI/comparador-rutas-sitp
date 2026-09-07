@@ -399,7 +399,7 @@ with tab_operador:
         tabla_operador[columnas_operador].style.map(
             lambda valor: (
                 "background-color: #FFE699; color: #8A3B00; font-weight: bold"
-                if float(str(valor).replace("%", "")) > 20
+                if float(str(valor).replace("%", "")) > 50
                 else ""
             ),
             subset=["Solapamiento (%)"],
