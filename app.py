@@ -88,7 +88,7 @@ opciones_solapadas = {
 }
 
 rutas_seleccionadas = st.sidebar.multiselect(
-    "Rutas con solapamiento mayor al 5%:",
+    "Rutas con mayor Solapamiento:",
     options=list(opciones_solapadas),
     format_func=lambda ruta: opciones_solapadas[ruta],
     help="Selecciona una o varias rutas para mostrarlas en el mapa.",
@@ -143,11 +143,11 @@ with tab_mapa:
             folium.GeoJson(
                 zona_wgs,
                 name=f"Zona compartida: {ruta}",
-                style_function=lambda x, color=colores_rutas[indice % len(colores_rutas)]: {
-                    "fillColor": color,
-                    "color": color,
-                    "weight": 1,
-                    "fillOpacity": 0.25,
+                style_function=lambda x: {
+                    "fillColor": "#FF1744",
+                    "color": "#D50000",
+                    "weight": 2,
+                    "fillOpacity": 0.5,
                 },
             ).add_to(m)
 
