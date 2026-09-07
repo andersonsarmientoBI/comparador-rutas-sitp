@@ -397,7 +397,11 @@ with tab_operador:
     ]
     st.table(
         tabla_operador[columnas_operador].style.map(
-            resaltar_porcentajes,
+            lambda valor: (
+                "background-color: #FFE699; color: #8A3B00; font-weight: bold"
+                if float(str(valor).replace("%", "")) > 20
+                else ""
+            ),
             subset=["Solapamiento (%)"],
         )
     )
