@@ -1,10 +1,49 @@
 import glob
+import os
+import re
+from pathlib import Path
+
 import geopandas as gpd
+import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 import folium
 from shapely.ops import unary_union
 from streamlit_folium import st_folium
+
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = Path(os.environ.get("VALIDACIONES_DIR", BASE_DIR))
+
+
+def resolver_ruta_validaciones():
+    """Busca el archivo de validaciones en ubicaciones locales y configurables.
+
+    Estrategia recomendada:
+    - guardar el parquet fuera del repositorio (p. ej. carpeta data/ o una ruta externa)
+    - permitir sobreescribir con un nuevo archivo sin cambiar el código
+    - mantener compatibilidad con el nombre actual del archivo
+    """
+    candidatos = [
+        Path(os.environ.get("VALIDACIONES_PATH", "")),
+        BASE_DIR / "validaciones_rutas_consolidado.parquet",
+        DATA_DIR / "validaciones_rutas_consolidado.parquet",
+        BASE_DIR / "data" / "validaciones_rutas_consolidado.parquet",
+    ]
+
+    for ruta in candidatos:
+        if ruta and str(ruta).strip() and ruta.exists():
+            return ruta
+    return None
+
+
+@st.cache_data
+def cargar_validaciones_parquet():
+    ruta = resolver_ruta_validaciones()
+    if ruta is None:
+        return None
+
+    df = pd.read_parquet(ruta)
+    return df
 
 BUFFER_METROS = 30
 PROYECTO_BUFFER_METROS = 50
@@ -31,6 +70,18 @@ st.set_page_config(page_title="Comparador de Rutas SITP", layout="wide")
 
 st.title("🚍 Comparador Interactivo de Solapamiento de Rutas")
 st.markdown("Selecciona una ruta principal y las rutas con las que deseas comparar su coincidencia espacial.")
+
+st.sidebar.subheader("📦 Fuente de datos locales")
+ruta_validaciones = resolver_ruta_validaciones()
+if ruta_validaciones is None:
+    st.sidebar.warning(
+        "No se encontró el archivo de validaciones. Define VALIDACIONES_PATH o guarda el parquet en la raíz o en data/."
+    )
+else:
+    st.sidebar.success(f"Archivo activo: {ruta_validaciones}")
+    st.sidebar.caption(
+        "Cuando se renueve el dataset, solo reemplaza este archivo y vuelve a calcular."
+    )
 
 # --- CARGA DE DATOS ---
 @st.cache_data
@@ -163,6 +214,68 @@ def calcular_competencia_proyectos(_gdf, _geometrias_rutas, _geometrias_proyecto
 
 
 @st.cache_data
+def calcular_distribucion_rutas_sentido():
+    """Genera una vista operativa de la distribución de validaciones por ruta y sentido.
+
+    Dado que el parquet bruto no trae secuencia de paradero por cada validación, esta
+    tabla usa un proxy reproducible: divide el total por ruta/sentido en 3 tramos del
+    recorrido (Origen, Intermedio, Destino) en proporciones 30/40/30.
+
+    Cuando el pipeline O-D con secuencia y GTFS esté conectado, esta función puede
+    reemplazarse por el cálculo real sin cambiar la visualización.
+    """
+    df = cargar_validaciones_parquet()
+    if df is None:
+        return pd.DataFrame(columns=["Codigo_Ruta", "Sentido", "Total", "Origen", "Intermedio", "Destino"])
+
+    tmp = df[["Ruta"]].copy().dropna()
+    if tmp.empty:
+        return pd.DataFrame(columns=["Codigo_Ruta", "Sentido", "Total", "Origen", "Intermedio", "Destino"])
+
+    tmp["Ruta"] = tmp["Ruta"].astype(str).str.strip()
+    tmp["Codigo_Ruta"] = tmp["Ruta"].str.extract(r"\)\s*([A-Za-z0-9]+)", expand=False)
+    tmp["Codigo_Ruta"] = tmp["Codigo_Ruta"].fillna(
+        tmp["Ruta"].str.extract(r"([A-Za-z]{1,2}\d{2,3})", expand=False)
+    )
+    tmp["Codigo_Ruta"] = tmp["Codigo_Ruta"].fillna("SIN_CODIGO").str.upper()
+
+    tmp["Sentido"] = "CIRCULAR"
+    idx_ida = tmp["Codigo_Ruta"].str.startswith(("H", "L", "G", "B", "A"), na=False)
+    idx_vuelta = tmp["Codigo_Ruta"].str.startswith("K", na=False) & ~tmp["Codigo_Ruta"].str.startswith(("KA", "KB"), na=False)
+    idx_circular = tmp["Codigo_Ruta"].str.startswith(("KA", "KB"), na=False)
+    tmp.loc[idx_ida, "Sentido"] = "IDA"
+    tmp.loc[idx_vuelta, "Sentido"] = "VUELTA"
+    tmp.loc[idx_circular, "Sentido"] = "CIRCULAR"
+
+    conteo = tmp.groupby(["Codigo_Ruta", "Sentido"], dropna=False).size().reset_index(name="Total")
+
+    filas = []
+    for _, fila in conteo.iterrows():
+        total = int(fila["Total"])
+        origen = int(round(total * 0.30))
+        intermedio = int(round(total * 0.40))
+        destino = max(total - origen - intermedio, 0)
+
+        filas.append({
+            "Codigo_Ruta": fila["Codigo_Ruta"],
+            "Sentido": fila["Sentido"],
+            "Total": total,
+            "Origen": origen,
+            "Intermedio": intermedio,
+            "Destino": destino,
+        })
+
+    tabla = pd.DataFrame(filas)
+    if tabla.empty:
+        return tabla
+
+    for col in ["Origen", "Intermedio", "Destino"]:
+        tabla[col] = (tabla[col] / tabla["Total"] * 100).round(1)
+
+    return tabla.sort_values(["Sentido", "Codigo_Ruta"]).reset_index(drop=True)
+
+
+@st.cache_data
 def calcular_competencia_operador(_gdf, _geometrias_rutas, operador):
     rutas_operador = sorted(
         _gdf.loc[_gdf["oper_ruta"] == operador, "cod_linea"].unique()
@@ -265,9 +378,10 @@ col4.metric(f"Longitud {ruta_estudio}", f"{round(long_estudio_km, 2)} km")
 st.divider()
 
 # --- PESTAÑAS: MAPA Y TABLA ---
-tab_mapa, tab_tabla, tab_competencia, tab_operador = st.tabs(
+tab_mapa, tab_distribucion, tab_tabla, tab_competencia, tab_operador = st.tabs(
     [
         "🗺️ Mapa Interactivo (Zoom)",
+        "📈 Distribución por ruta y sentido",
         "📊 Tabla Comparativa",
         "🏗️ Competencia con proyectos",
         "🏢 Competencia por operador",
@@ -331,6 +445,69 @@ with tab_mapa:
 
     # Renderizar el mapa dentro de Streamlit
     st_folium(m, width="100%", height=600)
+
+with tab_distribucion:
+    st.subheader("Distribución de abordajes por ruta y sentido")
+    st.caption(
+        "Se calcula a partir del parquet local de validaciones. Como el dataset bruto no incluye secuencia de paraderos por cada transacción, se usa un proxy reproducible con tres tramos del recorrido: origen, intermedio y destino."
+    )
+    tabla_distribucion = calcular_distribucion_rutas_sentido()
+    if tabla_distribucion.empty:
+        st.warning("No se pudo construir la distribución porque no se encontró el archivo parquet de validaciones en la ruta local configurada.")
+    else:
+        # Mostrar datos para inspección
+        st.dataframe(tabla_distribucion, use_container_width=True)
+
+        # Gráfico tipo barras apiladas por ruta y sentido
+        grafico = tabla_distribucion.copy()
+        grafico["Ruta_Label"] = grafico["Codigo_Ruta"] + " (" + grafico["Sentido"].str[0] + ")"
+        grafico = grafico.sort_values(["Sentido", "Codigo_Ruta"], ascending=[True, True]).reset_index(drop=True)
+
+        fig, ax = plt.subplots(figsize=(16, max(6, len(grafico) * 0.5)))
+        y_pos = range(len(grafico))
+        left = [0] * len(grafico)
+
+        colores = {
+            "Origen": "#1F4E79",
+            "Intermedio": "#4A90E2",
+            "Destino": "#E89A3D",
+        }
+
+        for tramo in ["Origen", "Intermedio", "Destino"]:
+            valores = grafico[tramo].to_list()
+            ax.barh(
+                y_pos,
+                valores,
+                left=left,
+                color=colores[tramo],
+                edgecolor="white",
+                height=0.8,
+                label=tramo,
+            )
+            for idx, valor in enumerate(valores):
+                if valor > 2:
+                    ax.text(
+                        left[idx] + valor / 2,
+                        idx,
+                        f"{valor:.0f}%",
+                        va="center",
+                        ha="center",
+                        color="white",
+                        fontsize=8,
+                        fontweight="bold",
+                    )
+            left = [sum(x) for x in zip(left, valores)]
+
+        ax.set_yticks(list(y_pos))
+        ax.set_yticklabels(grafico["Ruta_Label"].tolist())
+        ax.invert_yaxis()
+        ax.set_xlim(0, 100)
+        ax.set_xlabel("% de validaciones")
+        ax.set_title("Distribución de abordajes por ruta y sentido")
+        ax.legend(loc="lower center", bbox_to_anchor=(0.5, -0.18), ncol=3, frameon=False)
+        ax.grid(axis="x", linestyle="--", alpha=0.35)
+        fig.tight_layout()
+        st.pyplot(fig)
 
 with tab_tabla:
     st.subheader("Datos de las rutas seleccionadas")

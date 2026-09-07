@@ -2,3 +2,8 @@
 __pycache__/
 *.py[cod]
 contexto/
+
+# Datos locales pesados que no van al repositorio
+/validaciones_rutas_consolidado.parquet
+/data/
+*.parquet
