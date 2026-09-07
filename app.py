@@ -33,9 +33,9 @@ if gdf_raw is None:
 
 # Reproyección y disolución se cachean para no repetirlas al mover el mapa.
 @st.cache_data
-def preparar_geometrias(gdf):
-    gdf_metrico = gdf.to_crs(epsg=3116)
-    gdf_wgs84 = gdf.to_crs(epsg=4326)
+def preparar_geometrias(_gdf):
+    gdf_metrico = _gdf.to_crs(epsg=3116)
+    gdf_wgs84 = _gdf.to_crs(epsg=4326)
     rutas = sorted(gdf_metrico["cod_linea"].unique())
     geometrias_m = {
         ruta: gdf_metrico[gdf_metrico["cod_linea"] == ruta].dissolve()["geometry"].values[0]
