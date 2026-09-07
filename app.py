@@ -162,6 +162,45 @@ def calcular_competencia_proyectos(_gdf, _geometrias_rutas, _geometrias_proyecto
     return pd.DataFrame(filas)
 
 
+@st.cache_data
+def calcular_competencia_operador(_gdf, _geometrias_rutas, operador):
+    rutas_operador = sorted(
+        _gdf.loc[_gdf["oper_ruta"] == operador, "cod_linea"].unique()
+    )
+    filas = []
+
+    for ruta_green, (uf, zona_destino) in RUTAS_GREEN_REFERENCIA.items():
+        geometria_green = _geometrias_rutas[ruta_green]
+        longitud_green_km = geometria_green.length / 1000.0
+        buffer_green = geometria_green.buffer(BUFFER_METROS)
+        mayor_porcentaje = 0.0
+        ruta_competidora = "Sin solapamiento"
+
+        for ruta_operador in rutas_operador:
+            if ruta_operador == ruta_green:
+                continue
+            geometria_competidora = _geometrias_rutas.get(ruta_operador)
+            if geometria_competidora is None or not geometria_competidora.intersects(buffer_green):
+                continue
+
+            km_compartidos = geometria_competidora.intersection(buffer_green).length / 1000.0
+            porcentaje = min(round((km_compartidos / longitud_green_km) * 100, 1), 100.0)
+            if porcentaje > mayor_porcentaje:
+                mayor_porcentaje = porcentaje
+                ruta_competidora = ruta_operador
+
+        filas.append({
+            "UF": uf,
+            "Ruta Green": ruta_green,
+            "Solapamiento (%)": f"{mayor_porcentaje}%",
+            "Operador": operador,
+            "Zona de destino": zona_destino,
+            "Ruta principal competidora": ruta_competidora,
+        })
+
+    return pd.DataFrame(filas)
+
+
 # --- BARRA LATERAL (FILTROS) ---
 st.sidebar.header("⚙️ Configuración de Comparación")
 ruta_estudio = st.sidebar.selectbox("Ruta Principal (Estudio):", rutas_disponibles, index=0)
@@ -226,8 +265,13 @@ col4.metric(f"Longitud {ruta_estudio}", f"{round(long_estudio_km, 2)} km")
 st.divider()
 
 # --- PESTAÑAS: MAPA Y TABLA ---
-tab_mapa, tab_tabla, tab_competencia = st.tabs(
-    ["🗺️ Mapa Interactivo (Zoom)", "📊 Tabla Comparativa", "🏗️ Competencia con proyectos"]
+tab_mapa, tab_tabla, tab_competencia, tab_operador = st.tabs(
+    [
+        "🗺️ Mapa Interactivo (Zoom)",
+        "📊 Tabla Comparativa",
+        "🏗️ Competencia con proyectos",
+        "🏢 Competencia por operador",
+    ]
 )
 
 with tab_mapa:
@@ -327,3 +371,33 @@ with tab_competencia:
             return ""
 
     st.table(tabla_visible.style.map(resaltar_porcentajes, subset=columnas_porcentaje))
+
+with tab_operador:
+    st.subheader("Competencia de rutas Green por operador")
+    operadores_disponibles = sorted(
+        operador for operador in gdf_raw["oper_ruta"].unique() if operador and operador != "No Aplica"
+    )
+    operador_seleccionado = st.selectbox(
+        "Selecciona el operador competidor:",
+        operadores_disponibles,
+        key="operador_competencia",
+    )
+    tabla_operador = calcular_competencia_operador(
+        gdf_raw,
+        geometrias_rutas,
+        operador_seleccionado,
+    )
+    columnas_operador = [
+        "UF",
+        "Ruta Green",
+        "Solapamiento (%)",
+        "Operador",
+        "Zona de destino",
+        "Ruta principal competidora",
+    ]
+    st.table(
+        tabla_operador[columnas_operador].style.map(
+            resaltar_porcentajes,
+            subset=["Solapamiento (%)"],
+        )
+    )
