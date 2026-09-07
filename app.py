@@ -3,6 +3,7 @@ import geopandas as gpd
 import pandas as pd
 import streamlit as st
 import folium
+from shapely.ops import unary_union
 from streamlit_folium import st_folium
 
 BUFFER_METROS = 30
@@ -48,8 +49,36 @@ def preparar_geometrias(_gdf):
     return rutas, geometrias_m, geometrias_wgs84
 
 
+@st.cache_data
+def cargar_proyectos():
+    proyectos_m = {}
+    proyectos_wgs84 = {}
+    nombres = {}
+
+    for archivo in sorted(glob.glob("proyectos_bogota/*.geojson")):
+        proyecto = gpd.read_file(archivo)
+        nombre_archivo = archivo.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+        nombre = nombre_archivo.removesuffix(".geojson").replace("_", " ")
+
+        # Metro_Linea_1 tiene coordenadas métricas con un CRS declarado incorrecto.
+        if proyecto.total_bounds.max() > 1000:
+            proyecto = proyecto.set_crs(epsg=3116, allow_override=True)
+        elif proyecto.crs is None:
+            proyecto = proyecto.set_crs(epsg=4326)
+
+        geometria = unary_union(proyecto.to_crs(epsg=3116).geometry)
+        geometria_wgs84 = unary_union(proyecto.to_crs(epsg=4326).geometry)
+        clave = f"proyecto:{nombre}"
+        proyectos_m[clave] = geometria
+        proyectos_wgs84[clave] = geometria_wgs84
+        nombres[clave] = nombre
+
+    return proyectos_m, proyectos_wgs84, nombres
+
+
 rutas_disponibles, geometrias_rutas, geometrias_rutas_wgs84 = preparar_geometrias(gdf_raw)
 consorcios = gdf_raw.groupby("cod_linea")["oper_ruta"].first().to_dict()
+geometrias_proyectos, geometrias_proyectos_wgs84, nombres_proyectos = cargar_proyectos()
 
 
 @st.cache_data
@@ -84,15 +113,21 @@ geom_estudio_m = geometrias_rutas[ruta_estudio]
 long_estudio_km = geom_estudio_m.length / 1000.0
 buffer_estudio = geom_estudio_m.buffer(BUFFER_METROS)
 solapamientos = calcular_solapamientos(geometrias_rutas, consorcios, ruta_estudio)
-opciones_solapadas = {
+opciones_comparacion = {
     item["ruta"]: f"{item['ruta']} | {item['porcentaje']}% | {item['consorcio']}"
     for item in solapamientos
 }
 
+for clave, nombre in nombres_proyectos.items():
+    geometria = geometrias_proyectos[clave]
+    km_compartidos = geometria.intersection(buffer_estudio).length / 1000.0
+    porcentaje = min(round((km_compartidos / long_estudio_km) * 100, 1), 100.0)
+    opciones_comparacion[clave] = f"{nombre} | {porcentaje}% | Proyecto Bogotá"
+
 rutas_seleccionadas = st.sidebar.multiselect(
-    "Rutas con mayor Solapamiento:",
-    options=list(opciones_solapadas),
-    format_func=lambda ruta: opciones_solapadas[ruta],
+    "Rutas y proyectos para comparar:",
+    options=list(opciones_comparacion),
+    format_func=lambda opcion: opciones_comparacion[opcion],
     max_selections=MAX_RUTAS_EN_MAPA,
     help=f"Puedes seleccionar hasta {MAX_RUTAS_EN_MAPA} rutas para mantener el mapa ágil.",
 )
@@ -100,12 +135,26 @@ rutas_seleccionadas = st.sidebar.multiselect(
 datos_solapados = [
     item for item in solapamientos if item["ruta"] in rutas_seleccionadas
 ]
-max_porcentaje = max((item["porcentaje"] for item in datos_solapados), default=0)
-km_compartidos = sum(item["km_compartidos"] for item in datos_solapados)
+datos_proyectos = []
+for clave, nombre in nombres_proyectos.items():
+    if clave not in rutas_seleccionadas:
+        continue
+    geometria = geometrias_proyectos[clave]
+    km_compartidos = geometria.intersection(buffer_estudio).length / 1000.0
+    datos_proyectos.append({
+        "clave": clave,
+        "ruta": nombre,
+        "porcentaje": min(round((km_compartidos / long_estudio_km) * 100, 1), 100.0),
+        "consorcio": "Proyecto Bogotá",
+        "km_compartidos": km_compartidos,
+    })
+datos_comparados = datos_solapados + datos_proyectos
+max_porcentaje = max((item["porcentaje"] for item in datos_comparados), default=0)
+km_compartidos = sum(item["km_compartidos"] for item in datos_comparados)
 
 # --- PANEL DE MÉTRICAS CLAVE ---
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("Rutas seleccionadas", len(rutas_seleccionadas))
+col1.metric("Elementos seleccionados", len(rutas_seleccionadas))
 col2.metric("Mayor solapamiento", f"{max_porcentaje}%")
 col3.metric("Distancia compartida", f"{round(km_compartidos, 2)} km")
 col4.metric(f"Longitud {ruta_estudio}", f"{round(long_estudio_km, 2)} km")
@@ -135,12 +184,17 @@ with tab_mapa:
     ).add_to(m)
 
     colores_rutas = ["#FF6D00", "#1565C0", "#6A1B9A", "#00838F", "#AD1457"]
-    for indice, item in enumerate(datos_solapados):
+    for indice, item in enumerate(datos_comparados):
+        clave = item.get("clave", item["ruta"])
+        es_proyecto = clave in geometrias_proyectos
         ruta = item["ruta"]
-        geom_comp_wgs = geometrias_rutas_wgs84[ruta]
-        zona_compartida_m = buffer_estudio.intersection(
-            geometrias_rutas[ruta].buffer(BUFFER_METROS)
+        geom_comp_wgs = (
+            geometrias_proyectos_wgs84[clave]
+            if es_proyecto
+            else geometrias_rutas_wgs84[ruta]
         )
+        geometria_m = geometrias_proyectos[clave] if es_proyecto else geometrias_rutas[ruta]
+        zona_compartida_m = buffer_estudio.intersection(geometria_m.buffer(BUFFER_METROS))
         if not zona_compartida_m.is_empty:
             zona_wgs = gpd.GeoSeries([zona_compartida_m], crs=3116).to_crs(epsg=4326).values[0]
             folium.GeoJson(
@@ -156,11 +210,11 @@ with tab_mapa:
 
         folium.GeoJson(
             geom_comp_wgs,
-            name=f"Ruta {ruta} ({item['porcentaje']}% - {item['consorcio']})",
+            name=f"{ruta} ({item['porcentaje']}% - {item['consorcio']})",
             style_function=lambda x, color=colores_rutas[indice % len(colores_rutas)]: {
                 "color": color, "weight": 4, "dashArray": "5, 5", "opacity": 0.9
             },
-            tooltip=f"Ruta {ruta} | Solapamiento: {item['porcentaje']}% | Consorcio: {item['consorcio']}",
+            tooltip=f"{ruta} | Solapamiento: {item['porcentaje']}% | {item['consorcio']}",
         ).add_to(m)
 
     folium.LayerControl().add_to(m)
@@ -171,7 +225,7 @@ with tab_mapa:
 with tab_tabla:
     st.subheader("Datos de las rutas seleccionadas")
     datos_rutas = pd.DataFrame(
-        datos_solapados,
+        datos_comparados,
         columns=["ruta", "porcentaje", "consorcio", "km_compartidos"],
     )[["ruta", "porcentaje", "consorcio"]]
     if datos_rutas.empty:
