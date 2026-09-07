@@ -304,16 +304,26 @@ with tab_competencia:
         "Porcentaje calculado con un buffer fijo de 30 metros. "
         "La tabla replica las 14 rutas Green de referencia frente a los principales proyectos."
     )
-    st.table(
-        tabla_competencia[
-            [
-                "UF",
-                "Ruta Green",
-                "Zona de destino",
-                "Metro L1 (%)",
-                "Av. 68 (%)",
-                "Regiotram (%)",
-                "Nueva Calle 13 (%)",
-            ]
-        ]
-    )
+    columnas_tabla = [
+        "UF",
+        "Ruta Green",
+        "Zona de destino",
+        "Metro L1 (%)",
+        "Av. 68 (%)",
+        "Regiotram (%)",
+        "Nueva Calle 13 (%)",
+    ]
+    tabla_visible = tabla_competencia[columnas_tabla]
+    columnas_porcentaje = columnas_tabla[3:]
+
+    def resaltar_porcentajes(valor):
+        try:
+            return (
+                "background-color: #FFE699; color: #8A3B00; font-weight: bold"
+                if float(str(valor).replace("%", "")) > 10
+                else ""
+            )
+        except (TypeError, ValueError):
+            return ""
+
+    st.table(tabla_visible.style.map(resaltar_porcentajes, subset=columnas_porcentaje))
