@@ -6,7 +6,7 @@ import folium
 from streamlit_folium import st_folium
 
 BUFFER_METROS = 30
-MAX_RUTAS_SOLAPADAS = 10
+MAX_RUTAS_EN_MAPA = 5
 
 # Configuración de la página
 st.set_page_config(page_title="Comparador de Rutas SITP", layout="wide")
@@ -51,6 +51,30 @@ def preparar_geometrias(_gdf):
 rutas_disponibles, geometrias_rutas, geometrias_rutas_wgs84 = preparar_geometrias(gdf_raw)
 consorcios = gdf_raw.groupby("cod_linea")["oper_ruta"].first().to_dict()
 
+
+@st.cache_data
+def calcular_solapamientos(_geometrias, _consorcios, ruta_estudio):
+    geom_estudio_m = _geometrias[ruta_estudio]
+    long_estudio_km = geom_estudio_m.length / 1000.0
+    buffer_estudio = geom_estudio_m.buffer(BUFFER_METROS)
+    solapamientos = []
+
+    for ruta, geometria in _geometrias.items():
+        if ruta == ruta_estudio or not geometria.intersects(buffer_estudio):
+            continue
+
+        km_compartidos = geometria.intersection(buffer_estudio).length / 1000.0
+        porcentaje = min(round((km_compartidos / long_estudio_km) * 100, 1), 100.0)
+        if porcentaje > 5:
+            solapamientos.append({
+                "ruta": ruta,
+                "porcentaje": porcentaje,
+                "consorcio": _consorcios[ruta],
+                "km_compartidos": km_compartidos,
+            })
+
+    return sorted(solapamientos, key=lambda item: item["porcentaje"], reverse=True)
+
 # --- BARRA LATERAL (FILTROS) ---
 st.sidebar.header("⚙️ Configuración de Comparación")
 ruta_estudio = st.sidebar.selectbox("Ruta Principal (Estudio):", rutas_disponibles, index=0)
@@ -59,29 +83,7 @@ ruta_estudio = st.sidebar.selectbox("Ruta Principal (Estudio):", rutas_disponibl
 geom_estudio_m = geometrias_rutas[ruta_estudio]
 long_estudio_km = geom_estudio_m.length / 1000.0
 buffer_estudio = geom_estudio_m.buffer(BUFFER_METROS)
-
-solapamientos = []
-for ruta in rutas_disponibles:
-    if ruta == ruta_estudio:
-        continue
-
-    geometria = geometrias_rutas[ruta]
-    if not geometria.intersects(buffer_estudio):
-        continue
-
-    km_compartidos = geometria.intersection(buffer_estudio).length / 1000.0
-    porcentaje = min(round((km_compartidos / long_estudio_km) * 100, 1), 100.0)
-    if porcentaje > 5:
-        consorcio = consorcios[ruta]
-        solapamientos.append({
-            "ruta": ruta,
-            "porcentaje": porcentaje,
-            "consorcio": consorcio,
-            "km_compartidos": km_compartidos,
-        })
-
-solapamientos.sort(key=lambda item: item["porcentaje"], reverse=True)
-solapamientos = solapamientos[:MAX_RUTAS_SOLAPADAS]
+solapamientos = calcular_solapamientos(geometrias_rutas, consorcios, ruta_estudio)
 opciones_solapadas = {
     item["ruta"]: f"{item['ruta']} | {item['porcentaje']}% | {item['consorcio']}"
     for item in solapamientos
@@ -91,7 +93,8 @@ rutas_seleccionadas = st.sidebar.multiselect(
     "Rutas con mayor Solapamiento:",
     options=list(opciones_solapadas),
     format_func=lambda ruta: opciones_solapadas[ruta],
-    help="Selecciona una o varias rutas para mostrarlas en el mapa.",
+    max_selections=MAX_RUTAS_EN_MAPA,
+    help=f"Puedes seleccionar hasta {MAX_RUTAS_EN_MAPA} rutas para mantener el mapa ágil.",
 )
 
 datos_solapados = [
