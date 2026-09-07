@@ -5,6 +5,9 @@ import streamlit as st
 import folium
 from streamlit_folium import st_folium
 
+BUFFER_METROS = 30
+MAX_RUTAS_SOLAPADAS = 10
+
 # Configuración de la página
 st.set_page_config(page_title="Comparador de Rutas SITP", layout="wide")
 
@@ -28,24 +31,34 @@ if gdf_raw is None:
     st.error("❌ No se encontró ningún archivo `.geojson` en el directorio de la aplicación.")
     st.stop()
 
-# Reproyección a sistema métrico local (EPSG:3116) y lat/lon para mapa (EPSG:4326)
-gdf_metrico = gdf_raw.to_crs(epsg=3116)
-rutas_disponibles = sorted(gdf_metrico["cod_linea"].unique())
-geometrias_rutas = {
-    ruta: gdf_metrico[gdf_metrico["cod_linea"] == ruta].dissolve()["geometry"].values[0]
-    for ruta in rutas_disponibles
-}
+# Reproyección y disolución se cachean para no repetirlas al mover el mapa.
+@st.cache_data
+def preparar_geometrias(gdf):
+    gdf_metrico = gdf.to_crs(epsg=3116)
+    gdf_wgs84 = gdf.to_crs(epsg=4326)
+    rutas = sorted(gdf_metrico["cod_linea"].unique())
+    geometrias_m = {
+        ruta: gdf_metrico[gdf_metrico["cod_linea"] == ruta].dissolve()["geometry"].values[0]
+        for ruta in rutas
+    }
+    geometrias_wgs84 = {
+        ruta: gdf_wgs84[gdf_wgs84["cod_linea"] == ruta].dissolve()["geometry"].values[0]
+        for ruta in rutas
+    }
+    return rutas, geometrias_m, geometrias_wgs84
+
+
+rutas_disponibles, geometrias_rutas, geometrias_rutas_wgs84 = preparar_geometrias(gdf_raw)
+consorcios = gdf_raw.groupby("cod_linea")["oper_ruta"].first().to_dict()
 
 # --- BARRA LATERAL (FILTROS) ---
 st.sidebar.header("⚙️ Configuración de Comparación")
 ruta_estudio = st.sidebar.selectbox("Ruta Principal (Estudio):", rutas_disponibles, index=0)
 
-distancia_buffer = st.sidebar.slider("Margen de tolerancia (metros):", 10, 100, 30)
-
 # --- CÁLCULOS GEOGRÁFICOS ---
 geom_estudio_m = geometrias_rutas[ruta_estudio]
 long_estudio_km = geom_estudio_m.length / 1000.0
-buffer_estudio = geom_estudio_m.buffer(distancia_buffer)
+buffer_estudio = geom_estudio_m.buffer(BUFFER_METROS)
 
 solapamientos = []
 for ruta in rutas_disponibles:
@@ -59,7 +72,7 @@ for ruta in rutas_disponibles:
     km_compartidos = geometria.intersection(buffer_estudio).length / 1000.0
     porcentaje = min(round((km_compartidos / long_estudio_km) * 100, 1), 100.0)
     if porcentaje > 5:
-        consorcio = gdf_raw.loc[gdf_raw["cod_linea"] == ruta, "oper_ruta"].iloc[0]
+        consorcio = consorcios[ruta]
         solapamientos.append({
             "ruta": ruta,
             "porcentaje": porcentaje,
@@ -68,6 +81,7 @@ for ruta in rutas_disponibles:
         })
 
 solapamientos.sort(key=lambda item: item["porcentaje"], reverse=True)
+solapamientos = solapamientos[:MAX_RUTAS_SOLAPADAS]
 opciones_solapadas = {
     item["ruta"]: f"{item['ruta']} | {item['porcentaje']}% | {item['consorcio']}"
     for item in solapamientos
@@ -100,8 +114,7 @@ tab_mapa, tab_tabla = st.tabs(["🗺️ Mapa Interactivo (Zoom)", "📊 Tabla Co
 
 with tab_mapa:
     # Preparar Geometrías para Folium (WGS84 / EPSG:4326)
-    gdf_wgs84 = gdf_raw.to_crs(epsg=4326)
-    geom_estudio_wgs = gdf_wgs84[gdf_wgs84["cod_linea"] == ruta_estudio].dissolve()["geometry"].values[0]
+    geom_estudio_wgs = geometrias_rutas_wgs84[ruta_estudio]
 
     # Calcular centroide del mapa
     centro = [geom_estudio_wgs.centroid.y, geom_estudio_wgs.centroid.x]
@@ -121,9 +134,9 @@ with tab_mapa:
     colores_rutas = ["#FF6D00", "#1565C0", "#6A1B9A", "#00838F", "#AD1457"]
     for indice, item in enumerate(datos_solapados):
         ruta = item["ruta"]
-        geom_comp_wgs = gdf_wgs84[gdf_wgs84["cod_linea"] == ruta].dissolve()["geometry"].values[0]
-        zona_compartida_m = geom_estudio_m.buffer(distancia_buffer).intersection(
-            geometrias_rutas[ruta].buffer(distancia_buffer)
+        geom_comp_wgs = geometrias_rutas_wgs84[ruta]
+        zona_compartida_m = buffer_estudio.intersection(
+            geometrias_rutas[ruta].buffer(BUFFER_METROS)
         )
         if not zona_compartida_m.is_empty:
             zona_wgs = gpd.GeoSeries([zona_compartida_m], crs=3116).to_crs(epsg=4326).values[0]
