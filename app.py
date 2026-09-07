@@ -8,6 +8,22 @@ from streamlit_folium import st_folium
 
 BUFFER_METROS = 30
 MAX_RUTAS_EN_MAPA = 5
+RUTAS_GREEN_REFERENCIA = {
+    "KA324": ("UF 6", "Centro/Zona neutra"),
+    "KB326": ("UF 6", "Usaquén"),
+    "KH308": ("UF 6", "Usme"),
+    "KH317": ("UF 6", "Ciudad Bolívar"),
+    "KL312": ("UF 6", "San Cristóbal"),
+    "KL328": ("UF 6", "San Cristóbal"),
+    "KL329": ("UF 6", "San Cristóbal"),
+    "KA332": ("UF 17", "Centro/Zona neutra"),
+    "KB314": ("UF 17", "Usaquén"),
+    "KG311": ("UF 17", "Bosa"),
+    "KH318": ("UF 17", "Usme"),
+    "KH327": ("UF 17", "Ciudad Bolívar"),
+    "KL325": ("UF 17", "San Cristóbal"),
+    "KL331": ("UF 17", "San Cristóbal"),
+}
 
 # Configuración de la página
 st.set_page_config(page_title="Comparador de Rutas SITP", layout="wide")
@@ -104,6 +120,47 @@ def calcular_solapamientos(_geometrias, _consorcios, ruta_estudio):
 
     return sorted(solapamientos, key=lambda item: item["porcentaje"], reverse=True)
 
+
+@st.cache_data
+def calcular_competencia_proyectos(_gdf, _geometrias_rutas, _geometrias_proyectos, _nombres_proyectos):
+    proyectos = {
+        "Metro L1 (%)": next(
+            clave for clave, nombre in _nombres_proyectos.items() if nombre == "Metro Linea 1"
+        ),
+        "Av. 68 (%)": next(
+            clave for clave, nombre in _nombres_proyectos.items() if nombre == "Troncal Av68"
+        ),
+        "Regiotram (%)": next(
+            clave for clave, nombre in _nombres_proyectos.items() if nombre == "Regiotram Occidente"
+        ),
+        "Nueva Calle 13 (%)": next(
+            clave for clave, nombre in _nombres_proyectos.items() if nombre == "Troncal Calle13"
+        ),
+    }
+    filas = []
+
+    for ruta, (uf, zona_destino) in RUTAS_GREEN_REFERENCIA.items():
+        geometria_ruta = _geometrias_rutas[ruta]
+        longitud_km = geometria_ruta.length / 1000.0
+        fila = {
+            "UF": uf,
+            "Ruta Green": ruta,
+            "Zona de destino": zona_destino,
+            "Longitud (km)": round(longitud_km, 2),
+        }
+
+        for columna, clave in proyectos.items():
+            geometria_proyecto = _geometrias_proyectos[clave]
+            km_compartidos = geometria_proyecto.intersection(
+                geometria_ruta.buffer(BUFFER_METROS)
+            ).length / 1000.0
+            porcentaje = min(round((km_compartidos / longitud_km) * 100, 1), 100.0)
+            fila[columna] = f"{porcentaje}%"
+        filas.append(fila)
+
+    return pd.DataFrame(filas)
+
+
 # --- BARRA LATERAL (FILTROS) ---
 st.sidebar.header("⚙️ Configuración de Comparación")
 ruta_estudio = st.sidebar.selectbox("Ruta Principal (Estudio):", rutas_disponibles, index=0)
@@ -151,6 +208,12 @@ for clave, nombre in nombres_proyectos.items():
 datos_comparados = datos_solapados + datos_proyectos
 max_porcentaje = max((item["porcentaje"] for item in datos_comparados), default=0)
 km_compartidos = sum(item["km_compartidos"] for item in datos_comparados)
+tabla_competencia = calcular_competencia_proyectos(
+    gdf_raw,
+    geometrias_rutas,
+    geometrias_proyectos,
+    nombres_proyectos,
+)
 
 # --- PANEL DE MÉTRICAS CLAVE ---
 col1, col2, col3, col4 = st.columns(4)
@@ -162,7 +225,9 @@ col4.metric(f"Longitud {ruta_estudio}", f"{round(long_estudio_km, 2)} km")
 st.divider()
 
 # --- PESTAÑAS: MAPA Y TABLA ---
-tab_mapa, tab_tabla = st.tabs(["🗺️ Mapa Interactivo (Zoom)", "📊 Tabla Comparativa"])
+tab_mapa, tab_tabla, tab_competencia = st.tabs(
+    ["🗺️ Mapa Interactivo (Zoom)", "📊 Tabla Comparativa", "🏗️ Competencia con proyectos"]
+)
 
 with tab_mapa:
     # Preparar Geometrías para Folium (WGS84 / EPSG:4326)
@@ -231,3 +296,23 @@ with tab_tabla:
     if datos_rutas.empty:
         st.info("Selecciona una o varias rutas en el panel lateral para mostrarlas en el mapa.")
     st.dataframe(datos_rutas, use_container_width=True)
+
+with tab_competencia:
+    st.subheader("Competencia de rutas Green frente a proyectos de Bogotá")
+    st.caption(
+        "Porcentaje calculado con un buffer fijo de 30 metros. "
+        "La tabla replica las 14 rutas Green de referencia frente a los principales proyectos."
+    )
+    st.table(
+        tabla_competencia[
+            [
+                "UF",
+                "Ruta Green",
+                "Zona de destino",
+                "Metro L1 (%)",
+                "Av. 68 (%)",
+                "Regiotram (%)",
+                "Nueva Calle 13 (%)",
+            ]
+        ]
+    )
