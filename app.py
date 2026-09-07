@@ -80,7 +80,8 @@ with tab_mapa:
     centro = [geom_estudio_wgs.centroid.y, geom_estudio_wgs.centroid.x]
 
     # Crear Mapa Folium
-    m = folium.Map(location=centro, zoom_start=12, tiles="CartoDB positron")
+    #m = folium.Map(location=centro, zoom_start=12, tiles="CartoDB positron")
+    m = folium.Map(location=centro, zoom_start=12, tiles="OpenStreetMap")
 
     # Dibujar Zona Compartida (Buffer)
     buffer_franja_estudio = geom_estudio_m.buffer(120)
