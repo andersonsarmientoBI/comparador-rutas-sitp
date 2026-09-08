@@ -107,7 +107,6 @@ def cargar_validaciones_parquet():
         return None
 
 
-@st.cache_data
 def cargar_tabla_resumen_rutas():
     """Carga la tabla CSV ya procesada y agregada."""
     ruta = resolver_ruta_tabla_resumen()
