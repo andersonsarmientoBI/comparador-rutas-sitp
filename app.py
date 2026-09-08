@@ -294,69 +294,12 @@ def calcular_competencia_proyectos(_gdf, _geometrias_rutas, _geometrias_proyecto
     return pd.DataFrame(filas)
 
 
-@st.cache_data
 def calcular_distribucion_rutas_sentido():
-    """Genera una vista operativa de la distribución de validaciones por ruta y sentido.
-
-    Usa el CSV agregado publicado. El parquet bruto solo se consulta si no existe
-    ningún resumen local, para permitir el cálculo local cuando sea necesario.
-    """
-    ruta_resumen = resolver_ruta_tabla_resumen()
+    """Carga exclusivamente la distribución calculada en el resumen CSV."""
     tabla_agregada = cargar_tabla_resumen_rutas()
-    if ruta_resumen is not None:
-        if tabla_agregada is not None and not tabla_agregada.empty:
-            return tabla_agregada
+    if tabla_agregada is None:
         return pd.DataFrame(columns=["Codigo_Ruta", "Sentido", "Total", "Origen", "Intermedio", "Destino"])
-
-    df = cargar_validaciones_parquet()
-    if df is None:
-        return pd.DataFrame(columns=["Codigo_Ruta", "Sentido", "Total", "Origen", "Intermedio", "Destino"])
-
-    tmp = df[["Ruta"]].copy().dropna()
-    if tmp.empty:
-        return pd.DataFrame(columns=["Codigo_Ruta", "Sentido", "Total", "Origen", "Intermedio", "Destino"])
-
-    tmp["Ruta"] = tmp["Ruta"].astype(str).str.strip()
-    tmp["Codigo_Ruta"] = tmp["Ruta"].str.extract(r"\)\s*([A-Za-z0-9]+)", expand=False)
-    tmp["Codigo_Ruta"] = tmp["Codigo_Ruta"].fillna(
-        tmp["Ruta"].str.extract(r"([A-Za-z]{1,2}\d{2,3})", expand=False)
-    )
-    tmp["Codigo_Ruta"] = tmp["Codigo_Ruta"].fillna("SIN_CODIGO").str.upper()
-
-    tmp["Sentido"] = "CIRCULAR"
-    idx_ida = tmp["Codigo_Ruta"].str.startswith(("H", "L", "G", "B", "A"), na=False)
-    idx_vuelta = tmp["Codigo_Ruta"].str.startswith("K", na=False) & ~tmp["Codigo_Ruta"].str.startswith(("KA", "KB"), na=False)
-    idx_circular = tmp["Codigo_Ruta"].str.startswith(("KA", "KB"), na=False)
-    tmp.loc[idx_ida, "Sentido"] = "IDA"
-    tmp.loc[idx_vuelta, "Sentido"] = "VUELTA"
-    tmp.loc[idx_circular, "Sentido"] = "CIRCULAR"
-
-    conteo = tmp.groupby(["Codigo_Ruta", "Sentido"], dropna=False).size().reset_index(name="Total")
-
-    filas = []
-    for _, fila in conteo.iterrows():
-        total = int(fila["Total"])
-        origen = int(round(total * 0.30))
-        intermedio = int(round(total * 0.40))
-        destino = max(total - origen - intermedio, 0)
-
-        filas.append({
-            "Codigo_Ruta": fila["Codigo_Ruta"],
-            "Sentido": fila["Sentido"],
-            "Total": total,
-            "Origen": origen,
-            "Intermedio": intermedio,
-            "Destino": destino,
-        })
-
-    tabla = pd.DataFrame(filas)
-    if tabla.empty:
-        return tabla
-
-    for col in ["Origen", "Intermedio", "Destino"]:
-        tabla[col] = (tabla[col] / tabla["Total"] * 100).round(1)
-
-    return tabla.sort_values(["Sentido", "Codigo_Ruta"]).reset_index(drop=True)
+    return tabla_agregada
 
 
 @st.cache_data
