@@ -3,8 +3,9 @@ __pycache__/
 *.py[cod]
 contexto/
 
-# El parquet bruto es pesado y local; la tabla resumida sí se versiona.
+# Los datos pesados se quedan locales; el resumen liviano sí se versiona.
 /validaciones_rutas_consolidado.parquet
 /data/
 *.parquet
-!resumen_rutas_sentido.parquet
+*.csv
+!resumen_rutas_sentido.csv
