@@ -31,6 +31,21 @@ def resolver_ruta_archivo(nombre_archivo: str):
     return None
 
 
+def resolver_ruta_tabla_resumen():
+    """Busca la tabla resumida del análisis por ruta y sentido."""
+    candidatos = [
+        Path(os.environ.get("TABLA_RESUMEN_PATH", "")),
+        BASE_DIR / "resumen_rutas_sentido.parquet",
+        DATA_DIR / "resumen_rutas_sentido.parquet",
+        BASE_DIR / "data" / "resumen_rutas_sentido.parquet",
+    ]
+
+    for ruta in candidatos:
+        if ruta and str(ruta).strip() and ruta.exists():
+            return ruta
+    return None
+
+
 def resolver_ruta_validaciones():
     """Busca el archivo de validaciones en ubicaciones locales y configurables.
 
@@ -113,14 +128,22 @@ st.markdown("Selecciona una ruta principal y las rutas con las que deseas compar
 
 st.sidebar.subheader("📦 Fuente de datos locales")
 ruta_validaciones = resolver_ruta_validaciones()
-if ruta_validaciones is None:
-    st.sidebar.warning(
-        "No se encontró el archivo de validaciones. Define VALIDACIONES_PATH o guarda el parquet en la raíz o en data/."
-    )
-else:
-    st.sidebar.success(f"Archivo activo: {ruta_validaciones}")
+ruta_resumen = resolver_ruta_tabla_resumen()
+
+if ruta_validaciones is not None:
+    st.sidebar.success(f"Archivo bruto activo: {ruta_validaciones}")
     st.sidebar.caption(
         "Cuando se renueve el dataset, solo reemplaza este archivo y vuelve a calcular."
+    )
+elif ruta_resumen is not None:
+    st.sidebar.success(f"Tabla resumida activa: {ruta_resumen}")
+    st.sidebar.caption(
+        "Se está usando la tabla resumida como fuente principal; el parquet bruto no es obligatorio para la app."
+    )
+else:
+    st.sidebar.warning(
+        "No se encontró el parquet bruto de validaciones ni la tabla resumida. "
+        "Define VALIDACIONES_PATH o TABLA_RESUMEN_PATH o guarda el archivo en la raíz o en data/."
     )
 
 # --- CARGA DE DATOS ---
