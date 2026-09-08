@@ -6,6 +6,7 @@ import pandas as pd
 BASE_DIR = Path(__file__).resolve().parent
 PARQUET_BRUTO = BASE_DIR / "validaciones_rutas_consolidado.parquet"
 PARQUET_RESUMEN = BASE_DIR / "resumen_rutas_sentido.parquet"
+CSV_RESUMEN = BASE_DIR / "resumen_rutas_sentido.csv"
 
 
 def construir_resumen_rutas_sentido(ruta_parquet: Path = PARQUET_BRUTO) -> pd.DataFrame:
@@ -62,7 +63,9 @@ def construir_resumen_rutas_sentido(ruta_parquet: Path = PARQUET_BRUTO) -> pd.Da
 def main():
     tabla = construir_resumen_rutas_sentido()
     tabla.to_parquet(PARQUET_RESUMEN, index=False)
+    tabla.to_csv(CSV_RESUMEN, index=False)
     print(f"Archivo generado: {PARQUET_RESUMEN}")
+    print(f"Archivo generado: {CSV_RESUMEN}")
     print(tabla.head(10).to_string(index=False))
 
 

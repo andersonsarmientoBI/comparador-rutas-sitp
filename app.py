@@ -32,11 +32,17 @@ def resolver_ruta_archivo(nombre_archivo: str):
 
 
 def resolver_ruta_tabla_resumen():
-    """Busca la tabla resumida del análisis por ruta y sentido."""
+    """Busca la tabla resumida del análisis por ruta y sentido.
+
+    Acepta tanto parquet como CSV para evitar depender solo de un formato pesado.
+    """
     candidatos = [
         Path(os.environ.get("TABLA_RESUMEN_PATH", "")),
+        BASE_DIR / "resumen_rutas_sentido.csv",
         BASE_DIR / "resumen_rutas_sentido.parquet",
+        DATA_DIR / "resumen_rutas_sentido.csv",
         DATA_DIR / "resumen_rutas_sentido.parquet",
+        BASE_DIR / "data" / "resumen_rutas_sentido.csv",
         BASE_DIR / "data" / "resumen_rutas_sentido.parquet",
     ]
 
@@ -74,15 +80,26 @@ def cargar_validaciones_parquet():
         return None
 
     try:
-        df = pd.read_parquet(ruta)
+        if ruta.suffix.lower() == ".csv":
+            df = pd.read_csv(ruta)
+        else:
+            df = pd.read_parquet(ruta)
         if df is None or df.empty:
             st.sidebar.warning(f"El archivo encontrado está vacío: {ruta}")
             return None
         return df
     except Exception:  # pragma: no cover - manejo defensivo para despliegues
-        st.sidebar.error(
-            f"La fuente de validaciones no es un parquet válido: {ruta}. "
-            "Verifica que el archivo exista y no esté corrupto o vacío."
+        csv_alternativo = ruta.with_suffix(".csv")
+        if csv_alternativo.exists():
+            try:
+                df = pd.read_csv(csv_alternativo)
+                if df is not None and not df.empty:
+                    return df
+            except Exception:
+                pass
+        st.sidebar.warning(
+            f"La fuente de validaciones no está disponible o no es una tabla válida: {ruta}. "
+            "Se usará la vista resumida si existe."
         )
         return None
 
@@ -91,13 +108,21 @@ def cargar_validaciones_parquet():
 def cargar_tabla_resumen_rutas():
     """Carga la tabla ya procesada y agregada. Si no existe, devuelve None y la app
     puede calcularla sobre la marcha desde el parquet bruto local."""
-    ruta = resolver_ruta_archivo("resumen_rutas_sentido.parquet")
+    ruta = resolver_ruta_tabla_resumen()
     if ruta is None:
         return None
 
     try:
+        if ruta.suffix.lower() == ".csv":
+            return pd.read_csv(ruta)
         return pd.read_parquet(ruta)
     except Exception:
+        try:
+            csv_alternativo = ruta.with_suffix(".csv")
+            if csv_alternativo.exists():
+                return pd.read_csv(csv_alternativo)
+        except Exception:
+            pass
         return None
 
 BUFFER_METROS = 30
