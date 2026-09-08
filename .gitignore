@@ -9,3 +9,4 @@ contexto/
 *.parquet
 *.csv
 !resumen_rutas_sentido.csv
+/generar_resumen_rutas_sentido.py

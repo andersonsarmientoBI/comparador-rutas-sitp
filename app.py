@@ -17,13 +17,16 @@ DATA_DIR = Path(os.environ.get("VALIDACIONES_DIR", BASE_DIR))
 
 def resolver_ruta_archivo(nombre_archivo: str):
     """Busca un archivo local configurable sin necesidad de meterlo al repositorio."""
-    candidatos = [
-        Path(os.environ.get("VALIDACIONES_PATH", "")),
-        Path(os.environ.get("TABLA_RESUMEN_PATH", "")),
+    candidatos = []
+    for variable in ("VALIDACIONES_PATH", "TABLA_RESUMEN_PATH"):
+        valor = os.environ.get(variable, "").strip()
+        if valor:
+            candidatos.append(Path(valor))
+    candidatos.extend([
         BASE_DIR / nombre_archivo,
         DATA_DIR / nombre_archivo,
         BASE_DIR / "data" / nombre_archivo,
-    ]
+    ])
 
     for ruta in candidatos:
         if ruta and str(ruta).strip() and ruta.exists():
@@ -32,19 +35,16 @@ def resolver_ruta_archivo(nombre_archivo: str):
 
 
 def resolver_ruta_tabla_resumen():
-    """Busca la tabla resumida del análisis por ruta y sentido.
-
-    Acepta tanto parquet como CSV para evitar depender solo de un formato pesado.
-    """
-    candidatos = [
-        Path(os.environ.get("TABLA_RESUMEN_PATH", "")),
+    """Busca la tabla CSV resumida del análisis por ruta y sentido."""
+    candidatos = []
+    valor = os.environ.get("TABLA_RESUMEN_PATH", "").strip()
+    if valor:
+        candidatos.append(Path(valor))
+    candidatos.extend([
         BASE_DIR / "resumen_rutas_sentido.csv",
-        BASE_DIR / "resumen_rutas_sentido.parquet",
         DATA_DIR / "resumen_rutas_sentido.csv",
-        DATA_DIR / "resumen_rutas_sentido.parquet",
         BASE_DIR / "data" / "resumen_rutas_sentido.csv",
-        BASE_DIR / "data" / "resumen_rutas_sentido.parquet",
-    ]
+    ])
 
     for ruta in candidatos:
         if ruta and str(ruta).strip() and ruta.exists():
@@ -60,12 +60,15 @@ def resolver_ruta_validaciones():
     - permitir sobreescribir con un nuevo archivo sin cambiar el código
     - mantener compatibilidad con el nombre actual del archivo
     """
-    candidatos = [
-        Path(os.environ.get("VALIDACIONES_PATH", "")),
+    candidatos = []
+    valor = os.environ.get("VALIDACIONES_PATH", "").strip()
+    if valor:
+        candidatos.append(Path(valor))
+    candidatos.extend([
         BASE_DIR / "validaciones_rutas_consolidado.parquet",
         DATA_DIR / "validaciones_rutas_consolidado.parquet",
         BASE_DIR / "data" / "validaciones_rutas_consolidado.parquet",
-    ]
+    ])
 
     for ruta in candidatos:
         if ruta and str(ruta).strip() and ruta.exists():
@@ -106,23 +109,14 @@ def cargar_validaciones_parquet():
 
 @st.cache_data
 def cargar_tabla_resumen_rutas():
-    """Carga la tabla ya procesada y agregada. Si no existe, devuelve None y la app
-    puede calcularla sobre la marcha desde el parquet bruto local."""
+    """Carga la tabla CSV ya procesada y agregada."""
     ruta = resolver_ruta_tabla_resumen()
     if ruta is None:
         return None
 
     try:
-        if ruta.suffix.lower() == ".csv":
-            return pd.read_csv(ruta)
-        return pd.read_parquet(ruta)
+        return pd.read_csv(ruta)
     except Exception:
-        try:
-            csv_alternativo = ruta.with_suffix(".csv")
-            if csv_alternativo.exists():
-                return pd.read_csv(csv_alternativo)
-        except Exception:
-            pass
         return None
 
 BUFFER_METROS = 30
