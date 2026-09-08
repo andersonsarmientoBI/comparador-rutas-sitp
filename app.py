@@ -299,13 +299,15 @@ def calcular_competencia_proyectos(_gdf, _geometrias_rutas, _geometrias_proyecto
 def calcular_distribucion_rutas_sentido():
     """Genera una vista operativa de la distribución de validaciones por ruta y sentido.
 
-    Se prioriza la tabla agregada ya procesada, que es la salida que sí debería ir al repositorio.
-    El parquet bruto se queda local y fuera del git. Si la tabla agregada no existe, se calcula
-    a partir del parquet local como fallback.
+    Usa el CSV agregado publicado. El parquet bruto solo se consulta si no existe
+    ningún resumen local, para permitir el cálculo local cuando sea necesario.
     """
+    ruta_resumen = resolver_ruta_tabla_resumen()
     tabla_agregada = cargar_tabla_resumen_rutas()
-    if tabla_agregada is not None and not tabla_agregada.empty:
-        return tabla_agregada
+    if ruta_resumen is not None:
+        if tabla_agregada is not None and not tabla_agregada.empty:
+            return tabla_agregada
+        return pd.DataFrame(columns=["Codigo_Ruta", "Sentido", "Total", "Origen", "Intermedio", "Destino"])
 
     df = cargar_validaciones_parquet()
     if df is None:
@@ -532,13 +534,13 @@ with tab_mapa:
 with tab_distribucion:
     st.subheader("Distribución de abordajes por ruta y sentido")
     st.caption(
-        "Se calcula a partir del parquet local de validaciones. Como el dataset bruto no incluye secuencia de paraderos por cada transacción, se usa un proxy reproducible con tres tramos del recorrido: origen, intermedio y destino."
+        "Se muestra a partir del resumen CSV generado localmente. Como el dataset bruto no incluye secuencia de paraderos por cada transacción, se usa un proxy reproducible con tres tramos del recorrido: origen, intermedio y destino."
     )
     tabla_distribucion = calcular_distribucion_rutas_sentido()
     if tabla_distribucion is None or tabla_distribucion.empty:
         st.warning(
-            "No se pudo construir la distribución porque no se encontró un parquet válido de validaciones. "
-            "Define VALIDACIONES_PATH o coloca el archivo local en la raíz o en data/."
+            "No se pudo cargar el resumen CSV de rutas y sentidos. "
+            "Verifica que resumen_rutas_sentido.csv exista y no esté vacío."
         )
     else:
         # Mostrar datos para inspección
