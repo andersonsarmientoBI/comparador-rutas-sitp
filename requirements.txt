@@ -5,3 +5,4 @@ streamlit-folium
 shapely
 pyarrow
 matplotlib
+plotly

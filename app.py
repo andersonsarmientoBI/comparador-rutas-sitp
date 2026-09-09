@@ -6,6 +6,7 @@ from pathlib import Path
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 import folium
 from shapely.ops import unary_union
@@ -491,53 +492,45 @@ with tab_distribucion:
         grafico["Ruta_Label"] = grafico["Codigo_Ruta"] + " (" + grafico["Sentido"].str[0] + ")"
         grafico = grafico.sort_values("Origen", ascending=False).reset_index(drop=True)
 
-        fig, ax = plt.subplots(figsize=(18, max(8, len(grafico) * 0.58)))
-        y_pos = range(len(grafico))
-        left = [0] * len(grafico)
-
         colores = {
             "Origen": "#1F4E79",
             "Intermedio": "#4A90E2",
             "Destino": "#E89A3D",
         }
-
+        figura = go.Figure()
         for tramo in ["Origen", "Intermedio", "Destino"]:
-            valores = grafico[tramo].to_list()
-            ax.barh(
-                y_pos,
-                valores,
-                left=left,
-                color=colores[tramo],
-                edgecolor="white",
-                height=0.8,
-                label=tramo,
+            figura.add_trace(
+                go.Bar(
+                    name=tramo,
+                    y=grafico["Ruta_Label"],
+                    x=grafico[tramo],
+                    orientation="h",
+                    marker_color=colores[tramo],
+                    text=[f"{valor:.1f}%" if valor >= 4 else "" for valor in grafico[tramo]],
+                    textposition="inside",
+                    insidetextanchor="middle",
+                    hovertemplate=(
+                        "Ruta: %{y}<br>"
+                        f"{tramo}: %{{x:.1f}}%<extra></extra>"
+                    ),
+                )
             )
-            for idx, valor in enumerate(valores):
-                if valor > 2:
-                    ax.text(
-                        left[idx] + valor / 2,
-                        idx,
-                        f"{valor:.0f}%",
-                        va="center",
-                        ha="center",
-                        color="white",
-                        fontsize=8,
-                        fontweight="bold",
-                    )
-            left = [sum(x) for x in zip(left, valores)]
 
-        ax.set_yticks(list(y_pos))
-        ax.set_yticklabels(grafico["Ruta_Label"].tolist())
-        ax.invert_yaxis()
-        ax.set_xlim(0, 100)
-        ax.set_xlabel("% de validaciones")
-        ax.set_title("Distribución de abordajes por ruta y sentido", fontsize=16, pad=16)
-        ax.tick_params(axis="y", labelsize=10)
-        ax.tick_params(axis="x", labelsize=10)
-        ax.legend(loc="lower center", bbox_to_anchor=(0.5, -0.18), ncol=3, frameon=False)
-        ax.grid(axis="x", linestyle="--", alpha=0.35)
-        fig.tight_layout(rect=(0, 0.04, 1, 1))
-        st.pyplot(fig, use_container_width=True)
+        figura.update_layout(
+            barmode="stack",
+            height=max(720, len(grafico) * 52),
+            title={
+                "text": "Distribución de abordajes por ruta y sentido",
+                "font": {"size": 20},
+            },
+            xaxis={"title": "% de validaciones", "range": [0, 100], "dtick": 10},
+            yaxis={"title": "", "autorange": "reversed", "tickfont": {"size": 12}},
+            legend={"orientation": "h", "y": -0.12, "x": 0.5, "xanchor": "center"},
+            margin={"l": 90, "r": 30, "t": 70, "b": 90},
+            plot_bgcolor="white",
+            hoverlabel={"font": {"size": 14}},
+        )
+        st.plotly_chart(figura, use_container_width=True)
 
 with tab_tabla:
     st.subheader("Datos de las rutas seleccionadas")
