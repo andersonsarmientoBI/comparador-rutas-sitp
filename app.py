@@ -265,8 +265,8 @@ def calcular_competencia_proyectos(_gdf, _geometrias_rutas, _geometrias_proyecto
 
         for columna, clave in proyectos.items():
             geometria_proyecto = _geometrias_proyectos[clave]
-            km_compartidos = geometria_ruta.intersection(
-                geometria_proyecto.buffer(PROYECTO_BUFFER_METROS)
+            km_compartidos = geometria_proyecto.intersection(
+                geometria_ruta.buffer(BUFFER_METROS)
             ).length / 1000.0
             porcentaje = min(round((km_compartidos / longitud_km) * 100, 1), 100.0)
             fila[columna] = f"{porcentaje}%"
