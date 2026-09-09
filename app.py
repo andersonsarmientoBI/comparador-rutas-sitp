@@ -145,26 +145,6 @@ st.set_page_config(page_title="Comparador de Rutas SITP", layout="wide")
 st.title("🚍 Comparador Interactivo de Solapamiento de Rutas")
 st.markdown("Selecciona una ruta principal y las rutas con las que deseas comparar su coincidencia espacial.")
 
-st.sidebar.subheader("📦 Fuente de datos locales")
-ruta_validaciones = resolver_ruta_validaciones()
-ruta_resumen = resolver_ruta_tabla_resumen()
-
-if ruta_validaciones is not None:
-    st.sidebar.success(f"Archivo bruto activo: {ruta_validaciones}")
-    st.sidebar.caption(
-        "Cuando se renueve el dataset, solo reemplaza este archivo y vuelve a calcular."
-    )
-elif ruta_resumen is not None:
-    st.sidebar.success(f"Tabla resumida activa: {ruta_resumen}")
-    st.sidebar.caption(
-        "Se está usando la tabla resumida como fuente principal; el parquet bruto no es obligatorio para la app."
-    )
-else:
-    st.sidebar.warning(
-        "No se encontró el parquet bruto de validaciones ni la tabla resumida. "
-        "Define VALIDACIONES_PATH o TABLA_RESUMEN_PATH o guarda el archivo en la raíz o en data/."
-    )
-
 # --- CARGA DE DATOS ---
 @st.cache_data
 def cargar_geojson():
