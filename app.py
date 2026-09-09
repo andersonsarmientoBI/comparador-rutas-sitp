@@ -475,9 +475,6 @@ with tab_mapa:
 
 with tab_distribucion:
     st.subheader("Distribución de abordajes por ruta y sentido")
-    st.caption(
-        "Se muestra a partir del resumen CSV generado localmente. Como el dataset bruto no incluye secuencia de paraderos por cada transacción, se usa un proxy reproducible con tres tramos del recorrido: origen, intermedio y destino."
-    )
     tabla_distribucion = calcular_distribucion_rutas_sentido()
     if tabla_distribucion is None or tabla_distribucion.empty:
         st.warning(
@@ -485,15 +482,16 @@ with tab_distribucion:
             "Verifica que resumen_rutas_sentido.csv exista y no esté vacío."
         )
     else:
-        # Mostrar datos para inspección
-        st.dataframe(tabla_distribucion, use_container_width=True)
-
-        # Gráfico tipo barras apiladas por ruta y sentido
         grafico = tabla_distribucion.copy()
+        grafico = grafico[
+            grafico["Codigo_Ruta"].astype(str).str.upper().ne("SIN_CODIGO")
+        ].copy()
+        for columna in ["Origen", "Intermedio", "Destino"]:
+            grafico[columna] = pd.to_numeric(grafico[columna], errors="coerce").fillna(0)
         grafico["Ruta_Label"] = grafico["Codigo_Ruta"] + " (" + grafico["Sentido"].str[0] + ")"
-        grafico = grafico.sort_values(["Sentido", "Codigo_Ruta"], ascending=[True, True]).reset_index(drop=True)
+        grafico = grafico.sort_values("Origen", ascending=False).reset_index(drop=True)
 
-        fig, ax = plt.subplots(figsize=(16, max(6, len(grafico) * 0.5)))
+        fig, ax = plt.subplots(figsize=(18, max(8, len(grafico) * 0.58)))
         y_pos = range(len(grafico))
         left = [0] * len(grafico)
 
@@ -533,11 +531,13 @@ with tab_distribucion:
         ax.invert_yaxis()
         ax.set_xlim(0, 100)
         ax.set_xlabel("% de validaciones")
-        ax.set_title("Distribución de abordajes por ruta y sentido")
+        ax.set_title("Distribución de abordajes por ruta y sentido", fontsize=16, pad=16)
+        ax.tick_params(axis="y", labelsize=10)
+        ax.tick_params(axis="x", labelsize=10)
         ax.legend(loc="lower center", bbox_to_anchor=(0.5, -0.18), ncol=3, frameon=False)
         ax.grid(axis="x", linestyle="--", alpha=0.35)
-        fig.tight_layout()
-        st.pyplot(fig)
+        fig.tight_layout(rect=(0, 0.04, 1, 1))
+        st.pyplot(fig, use_container_width=True)
 
 with tab_tabla:
     st.subheader("Datos de las rutas seleccionadas")
